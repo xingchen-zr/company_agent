@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f4f6f7">
+    <title>衡远金融制度助手</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="/static/app.js" defer></script>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar" aria-label="应用导航">
+            <div class="brand-block">
+                <div class="brand-mark" aria-hidden="true">衡</div>
+                <div>
+                    <div class="brand-name">衡远金融</div>
+                    <div class="brand-subtitle">员工工作台</div>
+                </div>
+            </div>
+
+            <button class="new-chat-button" id="new-chat-button" type="button">
+                <i data-lucide="square-pen" aria-hidden="true"></i>
+                <span>新建对话</span>
+            </button>
+
+            <nav class="nav-section" aria-label="当前工具">
+                <div class="nav-label">当前工具</div>
+                <button class="nav-item active" type="button" aria-current="page">
+                    <i data-lucide="messages-square" aria-hidden="true"></i>
+                    <span>制度问答</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-spacer"></div>
+
+            <div class="security-note">
+                <i data-lucide="shield-check" aria-hidden="true"></i>
+                <div>
+                    <strong>内部资料</strong>
+                    <span>请勿输入客户敏感信息</span>
+                </div>
+            </div>
+
+            <div class="profile-row">
+                <div class="profile-avatar" aria-hidden="true">员</div>
+                <div class="profile-copy">
+                    <strong>内部员工</strong>
+                    <span>标准访问权限</span>
+                </div>
+                <button class="icon-button" type="button" title="账户设置" aria-label="账户设置" disabled>
+                    <i data-lucide="ellipsis" aria-hidden="true"></i>
+                </button>
+            </div>
+        </aside>
+
+        <div class="sidebar-overlay" id="sidebar-overlay" hidden></div>
+
+        <main class="workspace">
+            <header class="topbar">
+                <button class="icon-button mobile-menu" id="mobile-menu" type="button" title="打开导航" aria-label="打开导航">
+                    <i data-lucide="menu" aria-hidden="true"></i>
+                </button>
+                <div class="topbar-title">
+                    <span class="topbar-kicker">员工服务中心</span>
+                    <h1>金融制度助手</h1>
+                </div>
+                <div class="topbar-status" id="topbar-status" aria-live="polite">
+                    <span class="status-dot"></span>
+                    <span>知识库就绪</span>
+                </div>
+            </header>
+
+            <section class="conversation" id="conversation" aria-label="对话内容" aria-live="polite">
+                <div class="conversation-inner" id="message-list">
+                    <article class="message assistant-message welcome-message">
+                        <div class="assistant-avatar" aria-hidden="true">
+                            <i data-lucide="landmark"></i>
+                        </div>
+                        <div class="message-column">
+                            <div class="welcome-heading">
+                                <div>
+                                    <div class="message-sender">制度助手</div>
+                                    <h2>今天需要查阅什么？</h2>
+                                </div>
+                                <div class="knowledge-badge">
+                                    <i data-lucide="database" aria-hidden="true"></i>
+                                    <span>现行制度库</span>
+                                </div>
+                            </div>
+                            <div class="message-content welcome-copy">您好，请选择常用事项，或直接提出您的问题。</div>
+                            <div class="suggestion-grid" aria-label="常用问题">
+                                <button type="button" class="suggestion" data-prompt="公司的员工福利有哪些？">
+                                    <span class="suggestion-icon"><i data-lucide="heart-handshake" aria-hidden="true"></i></span>
+                                    <span class="suggestion-copy"><strong>员工福利</strong><small>假期、补贴与保险</small></span>
+                                    <i class="suggestion-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="suggestion" data-prompt="绩效考核的指标和周期是什么？">
+                                    <span class="suggestion-icon"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i></span>
+                                    <span class="suggestion-copy"><strong>绩效考核</strong><small>指标、周期与申诉</small></span>
+                                    <i class="suggestion-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="suggestion" data-prompt="客户投诉应该按照什么流程处理？">
+                                    <span class="suggestion-icon"><i data-lucide="clipboard-list" aria-hidden="true"></i></span>
+                                    <span class="suggestion-copy"><strong>投诉流程</strong><small>登记、升级与反馈</small></span>
+                                    <i class="suggestion-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="suggestion" data-prompt="差旅和报销需要遵守哪些规定？">
+                                    <span class="suggestion-icon"><i data-lucide="receipt-text" aria-hidden="true"></i></span>
+                                    <span class="suggestion-copy"><strong>差旅报销</strong><small>标准、审批与凭证</small></span>
+                                    <i class="suggestion-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <footer class="composer-area">
+                <div class="composer-wrap">
+                    <form class="composer" id="chat-form">
+                        <div class="composer-leading" aria-hidden="true">
+                            <i data-lucide="sparkles"></i>
+                        </div>
+                        <textarea
+                            id="question-input"
+                            name="question"
+                            rows="1"
+                            maxlength="2000"
+                            placeholder="输入制度、福利或流程问题"
+                            aria-label="输入问题"
+                            required
+                        ></textarea>
+                        <button class="send-button" id="send-button" type="submit" title="发送" aria-label="发送问题">
+                            <i data-lucide="arrow-up" aria-hidden="true"></i>
+                        </button>
+                        <button class="stop-button" id="stop-button" type="button" title="停止生成" aria-label="停止生成" hidden>
+                            <i data-lucide="square" aria-hidden="true"></i>
+                        </button>
+                    </form>
+                    <div class="composer-meta">
+                        <span id="composer-status">回答依据以现行制度原文为准</span>
+                        <span id="character-count">0 / 2000</span>
+                    </div>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

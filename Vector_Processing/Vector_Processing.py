@@ -52,6 +52,7 @@ class VectorProcessing:
 
         return ("保存成功")
 
+
 #相似向量搜索
     def vector_search(self,question:str):
         started_at = time.perf_counter()

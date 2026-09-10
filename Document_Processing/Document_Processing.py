@@ -15,7 +15,7 @@ class DocumentProcessing:
         loader = TextLoader(self.path,encoding=self.encoding)
 
         texts = list(loader.lazy_load())
-
+ 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size = self.chunk_size,
             chunk_overlap = self.chunk_overlap,

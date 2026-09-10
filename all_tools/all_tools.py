@@ -4,7 +4,7 @@ import logging
 import time
 
 from Vector_Processing.Vector_Processing import VectorProcessing
-from langchain_core.tools import tool,StructuredTool
+from langchain_core.tools import StructuredTool
 
 
 logger = logging.getLogger(__name__)
@@ -18,20 +18,19 @@ class Tools:
             StructuredTool.from_function(
                 func=self.vector_search,
                 name="vector_search",
-                description="搜索公司制度文档"
+                description="检索公司制度文档；工具会同时执行向量语义召回和 BM25 关键词召回，并返回融合去重后的资料。"
                 )
                 ]
 
     """整理封装其他模块的方法,方便取出调用"""
 
     def vector_search(self,question):
-        """搜索相似文本内容并返回"""
+        """执行混合召回并将资料交给回答模型。"""
         started_at = time.perf_counter()
         logger.info(
             "tool_started tool=vector_search question_length=%d",
             len(question),
         )
-
         try:
             documents = self.vector_searchs.vector_search(question)
         except Exception:
@@ -45,17 +44,16 @@ class Tools:
             page = document.metadata.get("page", "未知页码")
 
             parts.append(
-                f"[资料{index}]\n"
+                f"[混合召回资料{index}]\n"
                 f"来源：{source}\n"
                 f"页码：{page}\n"
                 f"内容：{document.page_content}"
             )
 
-        duration_ms = (time.perf_counter() - started_at) * 1000
         logger.info(
             "tool_finished tool=vector_search result_count=%d duration_ms=%.2f",
             len(documents),
-            duration_ms,
+            (time.perf_counter() - started_at) * 1000,
         )
 
         if not documents:

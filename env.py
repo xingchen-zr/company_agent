@@ -3,11 +3,18 @@ from langchain_deepseek.chat_models import ChatDeepSeek
 
 text_Path = r"D:\company_agent\Document_Processing\金融公司制度与操作手册.txt"
 encoding = "utf-8"
-chunk_size = 500
+chunk_size = 300
 chunk_overlap = 100
 vector_path = r"D:\company_agent\Chroma_db"
-k_top:int = 10
+k_top: int = 20
+vector_k: int = k_top
+bm25_k: int = k_top
+hybrid_k: int = 8
+vector_weight: float = 0.5
+bm25_weight: float = 0.5
+rrf_k: int = 60
 MODEL = ChatDeepSeek(model="deepseek-v4-pro")
+IMAGE_MODEL = ChatDeepSeek(model="deepseek-v4-flash-vision-exp")
 Expired_Time = 60*60*48
 system_prompt = ("你是一位充分了解公司制度的助手,"
                 "专门解答公司内员工的各种对公司相关事务的疑惑,"

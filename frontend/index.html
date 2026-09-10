@@ -120,16 +120,30 @@
 
             <footer class="composer-area">
                 <div class="composer-wrap">
+                    <div class="attachment-list" id="attachment-list" aria-live="polite" hidden></div>
                     <form class="composer" id="chat-form">
-                        <div class="composer-leading" aria-hidden="true">
-                            <i data-lucide="sparkles"></i>
-                        </div>
+                        <input
+                            id="attachment-input"
+                            type="file"
+                            accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx,.txt,.md,.csv"
+                            multiple
+                            hidden
+                        >
+                        <button
+                            class="attach-button"
+                            id="attach-button"
+                            type="button"
+                            title="添加附件"
+                            aria-label="添加文件或图片"
+                        >
+                            <i data-lucide="paperclip" aria-hidden="true"></i>
+                        </button>
                         <textarea
                             id="question-input"
                             name="question"
                             rows="1"
                             maxlength="2000"
-                            placeholder="输入制度、福利或流程问题"
+                            placeholder="输入问题，或添加文件与图片"
                             aria-label="输入问题"
                             required
                         ></textarea>

@@ -12,9 +12,18 @@ const newChatButton = document.querySelector("#new-chat-button");
 const sidebar = document.querySelector("#sidebar");
 const sidebarOverlay = document.querySelector("#sidebar-overlay");
 const mobileMenu = document.querySelector("#mobile-menu");
+const composer = document.querySelector(".composer");
+const attachButton = document.querySelector("#attach-button");
+const attachmentInput = document.querySelector("#attachment-input");
+const attachmentList = document.querySelector("#attachment-list");
 
 let activeController = null;
 let toastTimer = null;
+let uploadInProgress = false;
+let selectedAttachments = [];
+
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 
 function refreshIcons() {
     if (window.lucide) {
@@ -66,7 +75,128 @@ function createAssistantMessage() {
     return article;
 }
 
-function appendUserMessage(text) {
+function formatFileSize(size) {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attachmentIcon(contentType) {
+    return contentType?.startsWith("image/") ? "image" : "file-text";
+}
+
+function setIdleComposerStatus() {
+    composerStatus.textContent = selectedAttachments.length
+        ? "附件已就绪，发送后将读取内容"
+        : "回答依据以现行制度原文为准";
+}
+
+function renderAttachments() {
+    attachmentList.replaceChildren();
+    attachmentList.hidden = selectedAttachments.length === 0;
+
+    for (const attachment of selectedAttachments) {
+        const item = document.createElement("div");
+        item.className = "attachment-item";
+
+        const icon = document.createElement("i");
+        icon.dataset.lucide = attachmentIcon(attachment.content_type);
+
+        const copy = document.createElement("span");
+        copy.className = "attachment-copy";
+        const name = document.createElement("strong");
+        name.textContent = attachment.name;
+        const size = document.createElement("small");
+        size.textContent = formatFileSize(attachment.size);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "attachment-remove";
+        remove.title = "移除附件";
+        remove.setAttribute("aria-label", `移除 ${attachment.name}`);
+        remove.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
+        remove.addEventListener("click", () => removeAttachment(attachment));
+
+        copy.append(name, size);
+        item.append(icon, copy, remove);
+        attachmentList.append(item);
+    }
+    refreshIcons();
+}
+
+async function parseError(response) {
+    try {
+        const payload = await response.json();
+        return payload.detail || `请求失败（${response.status}）`;
+    } catch {
+        return `请求失败（${response.status}）`;
+    }
+}
+
+async function uploadAttachments(fileList) {
+    const files = Array.from(fileList);
+    if (!files.length || uploadInProgress) return;
+
+    if (selectedAttachments.length + files.length > MAX_ATTACHMENTS) {
+        showToast(`每条消息最多添加 ${MAX_ATTACHMENTS} 个附件`);
+        return;
+    }
+    const oversized = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
+    if (oversized) {
+        showToast(`${oversized.name} 超过 10 MB`);
+        return;
+    }
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    uploadInProgress = true;
+    attachButton.disabled = true;
+    composer.classList.add("uploading");
+    composerStatus.textContent = `正在上传 ${files.length} 个附件`;
+    resizeInput();
+
+    try {
+        const response = await fetch("/attachments", {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+        });
+        if (!response.ok) throw new Error(await parseError(response));
+
+        const payload = await response.json();
+        selectedAttachments.push(...payload.attachments);
+        renderAttachments();
+        showToast(`已添加 ${payload.attachments.length} 个附件`);
+    } catch (error) {
+        showToast(error.message || "附件上传失败");
+    } finally {
+        uploadInProgress = false;
+        attachButton.disabled = Boolean(activeController);
+        composer.classList.remove("uploading");
+        setIdleComposerStatus();
+        attachmentInput.value = "";
+        resizeInput();
+    }
+}
+
+async function removeAttachment(attachment) {
+    try {
+        const response = await fetch(`/attachments/${attachment.id}`, {
+            method: "DELETE",
+            credentials: "include",
+        });
+        if (!response.ok && response.status !== 404) {
+            throw new Error(await parseError(response));
+        }
+        selectedAttachments = selectedAttachments.filter((item) => item.id !== attachment.id);
+        renderAttachments();
+        setIdleComposerStatus();
+    } catch (error) {
+        showToast(error.message || "附件移除失败");
+    }
+}
+
+function appendUserMessage(text, attachments = []) {
     const article = document.createElement("article");
     article.className = "message user-message";
 
@@ -78,8 +208,22 @@ function appendUserMessage(text) {
     content.textContent = text;
 
     column.append(content);
+    if (attachments.length) {
+        const files = document.createElement("div");
+        files.className = "message-attachments";
+        for (const attachment of attachments) {
+            const file = document.createElement("span");
+            file.innerHTML = `<i data-lucide="${attachmentIcon(attachment.content_type)}" aria-hidden="true"></i>`;
+            const label = document.createElement("span");
+            label.textContent = attachment.name;
+            file.append(label);
+            files.append(file);
+        }
+        column.append(files);
+    }
     article.append(column);
     messageList.append(article);
+    refreshIcons();
 }
 
 function finishAssistantMessage(article, text) {
@@ -103,15 +247,20 @@ function resizeInput() {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
     characterCount.textContent = `${input.value.length} / 2000`;
-    sendButton.disabled = !input.value.trim() || Boolean(activeController);
+    sendButton.disabled = !input.value.trim() || Boolean(activeController) || uploadInProgress;
 }
 
 function setStreamingState(active) {
     sendButton.hidden = active;
     stopButton.hidden = !active;
     input.disabled = active;
+    attachButton.disabled = active || uploadInProgress;
     conversation.setAttribute("aria-busy", String(active));
-    composerStatus.textContent = active ? "正在查询制度资料" : "回答依据以现行制度原文为准";
+    if (active) {
+        composerStatus.textContent = "正在查询制度资料";
+    } else {
+        setIdleComposerStatus();
+    }
     if (active) {
         setStatus("busy", "生成中");
     }
@@ -119,8 +268,8 @@ function setStreamingState(active) {
     refreshIcons();
 }
 
-async function askQuestion(question) {
-    appendUserMessage(question);
+async function askQuestion(question, attachments) {
+    appendUserMessage(question, attachments);
     const assistantMessage = createAssistantMessage();
     const assistantContent = assistantMessage.querySelector(".message-content");
     scrollToLatest();
@@ -137,7 +286,10 @@ async function askQuestion(question) {
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ question }),
+            body: JSON.stringify({
+                question,
+                attachment_ids: attachments.map((attachment) => attachment.id),
+            }),
             signal: activeController.signal,
         });
 
@@ -149,6 +301,9 @@ async function askQuestion(question) {
         if (!response.body) {
             throw new Error("浏览器未收到流式响应");
         }
+
+        selectedAttachments = [];
+        renderAttachments();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
@@ -194,13 +349,14 @@ async function askQuestion(question) {
 form.addEventListener("submit", (event) => {
     event.preventDefault();
     const question = input.value.trim();
-    if (!question || activeController) {
+    if (!question || activeController || uploadInProgress) {
         return;
     }
 
+    const attachments = [...selectedAttachments];
     input.value = "";
     resizeInput();
-    askQuestion(question);
+    askQuestion(question, attachments);
 });
 
 input.addEventListener("input", resizeInput);
@@ -213,6 +369,27 @@ input.addEventListener("keydown", (event) => {
 
 stopButton.addEventListener("click", () => {
     activeController?.abort();
+});
+
+attachButton.addEventListener("click", () => attachmentInput.click());
+attachmentInput.addEventListener("change", () => uploadAttachments(attachmentInput.files));
+
+for (const eventName of ["dragenter", "dragover"]) {
+    composer.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        if (!activeController) composer.classList.add("drag-active");
+    });
+}
+
+for (const eventName of ["dragleave", "drop"]) {
+    composer.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        composer.classList.remove("drag-active");
+    });
+}
+
+composer.addEventListener("drop", (event) => {
+    if (!activeController) uploadAttachments(event.dataTransfer.files);
 });
 
 document.querySelectorAll("[data-prompt]").forEach((button) => {
@@ -243,6 +420,9 @@ newChatButton.addEventListener("click", async () => {
     messageList.querySelectorAll(".message:not(.welcome-message)").forEach((message) => message.remove());
     closeSidebar();
     input.value = "";
+    selectedAttachments = [];
+    renderAttachments();
+    setIdleComposerStatus();
     resizeInput();
     input.focus();
     showToast("已开始新对话");

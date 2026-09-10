@@ -733,6 +733,148 @@ textarea:focus-visible {
     }
 }
 
+/* Attachments */
+.attachment-list {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    overflow-x: auto;
+    padding: 1px 1px 3px;
+}
+
+.attachment-list[hidden] {
+    display: none;
+}
+
+.attachment-item {
+    display: grid;
+    grid-template-columns: 24px minmax(80px, 170px) 26px;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 5px 6px 5px 9px;
+    background: #ffffff;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+}
+
+.attachment-item > svg {
+    width: 17px;
+    height: 17px;
+    color: var(--green);
+}
+
+.attachment-copy {
+    min-width: 0;
+}
+
+.attachment-copy strong,
+.attachment-copy small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attachment-copy strong {
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.attachment-copy small {
+    margin-top: 2px;
+    color: var(--ink-soft);
+    font-size: 10px;
+}
+
+.attachment-remove,
+.attach-button {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.attachment-remove {
+    width: 26px;
+    height: 26px;
+}
+
+.attach-button {
+    width: 36px;
+    height: 40px;
+}
+
+.attachment-remove:hover,
+.attach-button:hover:not(:disabled) {
+    color: var(--green);
+    background: var(--green-soft);
+}
+
+.attachment-remove svg,
+.attach-button svg {
+    width: 17px;
+    height: 17px;
+}
+
+.attach-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.composer.drag-active {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px rgba(18, 100, 71, 0.12);
+}
+
+.composer.uploading {
+    cursor: progress;
+}
+
+.message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.message-attachments > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 5px 8px;
+    color: var(--ink-soft);
+    font-size: 11px;
+    background: #ffffff;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+}
+
+.message-attachments svg {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    color: var(--green);
+}
+
+.message-attachments span span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer {
+    grid-template-columns: 36px minmax(0, 1fr) 40px;
+}
+
 /* Visual refinement */
 :root {
     --bg: #f3f5f4;
@@ -976,7 +1118,7 @@ textarea:focus-visible {
 }
 
 .composer {
-    grid-template-columns: 28px minmax(0, 1fr) 40px;
+    grid-template-columns: 36px minmax(0, 1fr) 40px;
     min-height: 62px;
     padding: 10px 10px 10px 13px;
     border-color: #c5d0cb;

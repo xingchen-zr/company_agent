@@ -129,6 +129,8 @@ celerybeat.pid
 
 # Environments
 .env
+uploads/
+Chroma_db/bm25_index.json
 .venv
 env/
 venv/

@@ -16,11 +16,13 @@ const composer = document.querySelector(".composer");
 const attachButton = document.querySelector("#attach-button");
 const attachmentInput = document.querySelector("#attachment-input");
 const attachmentList = document.querySelector("#attachment-list");
+const modeButtons = Array.from(document.querySelectorAll(".mode-button"));
 
 let activeController = null;
 let toastTimer = null;
 let uploadInProgress = false;
 let selectedAttachments = [];
+let activeMode = "chat";
 
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -86,6 +88,12 @@ function attachmentIcon(contentType) {
 }
 
 function setIdleComposerStatus() {
+    if (activeMode === "edit") {
+        composerStatus.textContent = selectedAttachments.length
+            ? "文件已就绪，请描述需要修改的内容"
+            : "修改文件模式需要一个 Word 或 Excel 文件";
+        return;
+    }
     composerStatus.textContent = selectedAttachments.length
         ? "附件已就绪，发送后将读取内容"
         : "回答依据以现行制度原文为准";
@@ -136,6 +144,18 @@ async function parseError(response) {
 async function uploadAttachments(fileList) {
     const files = Array.from(fileList);
     if (!files.length || uploadInProgress) return;
+
+    if (activeMode === "edit") {
+        const invalid = files.find((file) => !/\.(docx|xlsx)$/i.test(file.name));
+        if (invalid) {
+            showToast("修改文件模式仅支持 DOCX 和 XLSX");
+            return;
+        }
+        if (selectedAttachments.length + files.length > 1) {
+            showToast("每次只能修改一个 Word 或 Excel 文件");
+            return;
+        }
+    }
 
     if (selectedAttachments.length + files.length > MAX_ATTACHMENTS) {
         showToast(`每条消息最多添加 ${MAX_ATTACHMENTS} 个附件`);
@@ -243,11 +263,33 @@ function finishAssistantMessage(article, text) {
     });
 }
 
+function addDownloadAction(article, result) {
+    const actions = article.querySelector(".message-actions");
+    const link = document.createElement("a");
+    link.className = "download-action";
+    link.href = result.download_url;
+    link.download = result.attachment.name;
+    link.innerHTML = '<i data-lucide="download" aria-hidden="true"></i>';
+    const label = document.createElement("span");
+    label.textContent = `下载 ${result.attachment.name}`;
+    link.append(label);
+    actions.replaceChildren(link);
+    actions.hidden = false;
+    refreshIcons();
+}
+
 function resizeInput() {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
     characterCount.textContent = `${input.value.length} / 2000`;
-    sendButton.disabled = !input.value.trim() || Boolean(activeController) || uploadInProgress;
+    const invalidEditSelection = activeMode === "edit" && (
+        selectedAttachments.length !== 1
+        || ![".docx", ".xlsx"].includes(selectedAttachments[0]?.extension)
+    );
+    sendButton.disabled = !input.value.trim()
+        || Boolean(activeController)
+        || uploadInProgress
+        || invalidEditSelection;
 }
 
 function setStreamingState(active) {
@@ -255,9 +297,10 @@ function setStreamingState(active) {
     stopButton.hidden = !active;
     input.disabled = active;
     attachButton.disabled = active || uploadInProgress;
+    modeButtons.forEach((button) => { button.disabled = active; });
     conversation.setAttribute("aria-busy", String(active));
     if (active) {
-        composerStatus.textContent = "正在查询制度资料";
+        composerStatus.textContent = activeMode === "edit" ? "正在修改文件" : "正在查询制度资料";
     } else {
         setIdleComposerStatus();
     }
@@ -266,6 +309,54 @@ function setStreamingState(active) {
     }
     resizeInput();
     refreshIcons();
+}
+
+async function editDocument(instructions, attachments) {
+    appendUserMessage(instructions, attachments);
+    const assistantMessage = createAssistantMessage();
+    const assistantContent = assistantMessage.querySelector(".message-content");
+    scrollToLatest();
+
+    activeController = new AbortController();
+    setStreamingState(true);
+
+    try {
+        const response = await fetch("/edit_document", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                instructions,
+                attachment_id: attachments[0].id,
+            }),
+            signal: activeController.signal,
+        });
+        if (!response.ok) throw new Error(await parseError(response));
+
+        const result = await response.json();
+        assistantContent.textContent = `${result.message} 共执行 ${result.operation_count} 项修改。`;
+        selectedAttachments = [];
+        renderAttachments();
+        finishAssistantMessage(assistantMessage, assistantContent.textContent);
+        addDownloadAction(assistantMessage, result);
+        setStatus("ready", "文件已生成");
+    } catch (error) {
+        if (error.name === "AbortError") {
+            assistantContent.textContent = "文件修改请求已停止。";
+            showToast("已停止修改");
+            setStatus("ready", "已停止");
+        } else {
+            assistantContent.textContent = error.message || "文件修改失败，请稍后重试。";
+            showToast(error.message || "文件修改失败");
+            setStatus("error", "修改失败");
+        }
+        finishAssistantMessage(assistantMessage, assistantContent.textContent);
+    } finally {
+        activeController = null;
+        setStreamingState(false);
+        input.focus();
+        scrollToLatest();
+    }
 }
 
 async function askQuestion(question, attachments) {
@@ -356,7 +447,41 @@ form.addEventListener("submit", (event) => {
     const attachments = [...selectedAttachments];
     input.value = "";
     resizeInput();
-    askQuestion(question, attachments);
+    if (activeMode === "edit") {
+        editDocument(question, attachments);
+    } else {
+        askQuestion(question, attachments);
+    }
+});
+
+modeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        if (activeController || button.dataset.mode === activeMode) return;
+        activeMode = button.dataset.mode;
+        modeButtons.forEach((item) => {
+            const selected = item.dataset.mode === activeMode;
+            item.classList.toggle("active", selected);
+            item.setAttribute("aria-pressed", String(selected));
+        });
+        attachmentInput.accept = activeMode === "edit"
+            ? ".docx,.xlsx"
+            : ".png,.jpg,.jpeg,.webp,.pdf,.docx,.xlsx,.txt,.md,.csv";
+        attachmentInput.multiple = activeMode !== "edit";
+        input.placeholder = activeMode === "edit"
+            ? "描述要修改的内容，例如：把合同期限改为两年"
+            : "输入问题，或添加文件与图片";
+        if (activeMode === "edit" && (
+            selectedAttachments.length > 1
+            || selectedAttachments.some((item) => ![".docx", ".xlsx"].includes(item.extension))
+        )) {
+            selectedAttachments = [];
+            renderAttachments();
+            showToast("请重新添加一个 Word 或 Excel 文件");
+        }
+        setIdleComposerStatus();
+        resizeInput();
+        refreshIcons();
+    });
 });
 
 input.addEventListener("input", resizeInput);

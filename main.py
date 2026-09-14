@@ -16,16 +16,19 @@ from Attachment_Processing.storage import (
 )
 from Attachment_Processing.content import build_attachment_context
 from Attachment_Processing.vision import ImageAnalyzer
+from Attachment_Processing.office_editor import OfficeEditError, OfficeEditor
 
 from Rag.ai_answer import AiAnswer
 
 app = FastAPI()
 ai_service = AiAnswer()
-attachment_storage = AttachmentStorage(Path(__file__).resolve().parent / "uploads")
+attachment_storage = AttachmentStorage(Path(env.UPLOAD_PATH))
 image_analyzer = ImageAnalyzer()
+office_editor = OfficeEditor(env.MODEL)
 
 COOKIE_NAME = env.COOKIE_NAME
 COOKIE_MAX_AGE = env.COOKIE_MAX_AGE
+COOKIE_SECURE = env.COOKIE_SECURE
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 app.mount(
@@ -45,6 +48,11 @@ class Question(BaseModel):
         max_length=MAX_FILES_PER_REQUEST,
         description="当前会话已上传的附件 ID",
     )
+
+
+class DocumentEditRequest(BaseModel):
+    instructions: str = Field(..., min_length=1, max_length=2000)
+    attachment_id: str = Field(..., min_length=32, max_length=32)
 
 
 @app.get("/", include_in_schema=False)
@@ -91,7 +99,7 @@ async def upload_attachments(
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=COOKIE_SECURE,
         path="/",
     )
     return response
@@ -110,6 +118,59 @@ def delete_attachment(attachment_id: str, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="附件不存在。")
     return Response(status_code=204)
+
+
+@app.get("/attachments/{attachment_id}/download")
+def download_attachment(attachment_id: str, request: Request):
+    try:
+        attachment, path = attachment_storage.get_path(
+            request.cookies.get(COOKIE_NAME),
+            attachment_id,
+        )
+    except AttachmentValidationError as exc:
+        raise HTTPException(status_code=404, detail="附件不存在。") from exc
+    return FileResponse(
+        path,
+        media_type=attachment.content_type,
+        filename=attachment.name,
+    )
+
+
+@app.post("/edit_document")
+def edit_document(payload: DocumentEditRequest, request: Request):
+    session_id = request.cookies.get(COOKIE_NAME)
+    try:
+        attachment = attachment_storage.require_owned(
+            session_id,
+            [payload.attachment_id],
+        )[0]
+        if attachment.extension not in {".docx", ".xlsx"}:
+            raise AttachmentValidationError("修改文件模式仅支持 DOCX 和 XLSX。")
+        result = office_editor.edit(
+            instructions=payload.instructions,
+            filename=attachment.name,
+            extension=attachment.extension,
+            data=attachment_storage.read_bytes(session_id, attachment),
+        )
+        output = attachment_storage.save_bytes(
+            session_id=session_id,
+            name=result.filename,
+            content_type=attachment.content_type,
+            data=result.data,
+        )
+    except AttachmentValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OfficeEditError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="文件修改失败，请稍后重试。") from exc
+
+    return {
+        "message": result.summary,
+        "operation_count": result.operation_count,
+        "attachment": output.to_dict(),
+        "download_url": f"/attachments/{output.id}/download",
+    }
 
 
 @app.post("/get_question")
@@ -172,7 +233,7 @@ def get_question(
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,  # 本地 HTTP 调试使用 False
+        secure=COOKIE_SECURE,
         path="/",
     )
 

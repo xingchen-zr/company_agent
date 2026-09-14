@@ -17,6 +17,7 @@
 - 使用 HttpOnly Cookie 维护浏览器会话，Redis 保存最近 10 条有效对话，默认 48 小时过期。
 - 上传并校验 PNG、JPEG、WebP、PDF、DOCX、XLSX、TXT、MD、CSV 附件。
 - 文本附件在请求时提取并拼接到用户上下文；图片以 Base64 发送给视觉模型，识别结果再交给主 Agent。
+- 根据用户提示词修改 DOCX 或 XLSX 内容、公式和基础格式，保留原文件并返回修改副本的下载链接。
 - 在工具、检索、入库和异常分支输出关键链路日志，包括工具调用、检索耗时、历史读写和失败信息。
 - 提供附件、BM25、混合检索和接口测试，当前测试套件共 22 项。
 
@@ -70,6 +71,21 @@ POST /get_question
 
 附件内容不会自动写入 Chroma，也不会成为长期知识库语料。
 
+### Word 和 Excel 修改
+
+```text
+POST /attachments
+  -> 上传一个 DOCX 或 XLSX
+
+POST /edit_document
+  -> 读取文档结构和可见内容
+  -> 模型生成受约束的 JSON 修改计划
+  -> 后端校验段落、表格、工作表和单元格操作
+  -> 保存修改副本并返回会话内下载地址
+```
+
+当前支持 Word 文本替换、段落更新与格式、表格单元格更新和追加段落；支持 Excel 单元格值、公式、数字格式、字体、填充、对齐和文本替换。单次最多执行 200 项操作，原文件不会被覆盖。
+
 ## 目录结构
 
 ```text
@@ -80,6 +96,7 @@ company_agent/
 ├── Attachment_Processing/
 │   ├── storage.py                  # 附件校验、保存、删除和会话归属
 │   ├── content.py                  # PDF、DOCX、XLSX、文本提取
+│   ├── office_editor.py            # 提示词规划与 Word、Excel 受约束修改
 │   └── vision.py                   # 图片多模态识别
 ├── Document_Processing/
 │   ├── Document_Processing.py      # TXT 加载和文本切分
@@ -243,6 +260,30 @@ curl.exe -X POST http://127.0.0.1:8000/attachments `
 curl.exe -X DELETE http://127.0.0.1:8000/attachments/<attachment_id>
 ```
 
+### 修改 Word 或 Excel `POST /edit_document`
+
+请求必须携带上传文件所属会话的 Cookie，且一次只修改一个 `.docx` 或 `.xlsx`：
+
+```json
+{
+  "instructions": "把预算工作表 B2 改为 250，并将 C2 设为 B2 的两倍",
+  "attachment_id": "32位随机附件ID"
+}
+```
+
+成功响应包含修改摘要、操作数量、输出附件元数据和下载地址：
+
+```json
+{
+  "message": "已更新预算金额并添加计算公式",
+  "operation_count": 2,
+  "attachment": {"id": "输出附件ID", "name": "预算_edited.xlsx"},
+  "download_url": "/attachments/输出附件ID/download"
+}
+```
+
+下载接口为 `GET /attachments/{attachment_id}/download`，同样校验 Cookie 会话归属。
+
 ### 提问 `POST /get_question`
 
 请求体：
@@ -294,6 +335,7 @@ curl.exe -X POST http://127.0.0.1:8000/new_chat
 - PDF/DOCX/XLSX/文本提取上下文拼接。
 - 图片发送、视觉识别失败和接口错误映射。
 - 附件上传、删除、提问和跨会话访问接口。
+- Word、Excel 编辑计划执行、样式修改及结果下载接口。
 
 ## 检索评估
 

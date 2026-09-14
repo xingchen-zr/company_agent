@@ -1,11 +1,14 @@
 import tempfile
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 import main
+from Attachment_Processing.office_editor import EditResult
 from Attachment_Processing.storage import AttachmentStorage
 
 
@@ -32,6 +35,17 @@ class FailingImageAnalyzer:
         raise RuntimeError("vision unavailable")
 
 
+class FakeOfficeEditor:
+    def edit(self, instructions, filename, extension, data):
+        self.last_instructions = instructions
+        return EditResult(
+            data=data,
+            filename=f"edited{extension}",
+            summary="已完成指定修改",
+            operation_count=2,
+        )
+
+
 class AttachmentApiTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -43,13 +57,17 @@ class AttachmentApiTests(unittest.TestCase):
         self.fake_ai = FakeAiService()
         self.ai_patch = patch.object(main, "ai_service", self.fake_ai)
         self.image_patch = patch.object(main, "image_analyzer", FakeImageAnalyzer())
+        self.fake_office_editor = FakeOfficeEditor()
+        self.office_patch = patch.object(main, "office_editor", self.fake_office_editor)
         self.storage_patch.start()
         self.ai_patch.start()
         self.image_patch.start()
+        self.office_patch.start()
         self.client = TestClient(main.app)
 
     def tearDown(self):
         self.client.close()
+        self.office_patch.stop()
         self.image_patch.stop()
         self.ai_patch.stop()
         self.storage_patch.stop()
@@ -156,6 +174,49 @@ class AttachmentApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "图片识别失败，请稍后重试。")
+
+    def test_edit_and_download_office_attachment(self):
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types />")
+            archive.writestr("word/document.xml", "<document />")
+        upload = self.client.post(
+            "/attachments",
+            files={"files": (
+                "制度.docx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )},
+        )
+        attachment_id = upload.json()["attachments"][0]["id"]
+
+        response = self.client.post(
+            "/edit_document",
+            json={"instructions": "把标题改为新版制度", "attachment_id": attachment_id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["operation_count"], 2)
+        self.assertEqual(self.fake_office_editor.last_instructions, "把标题改为新版制度")
+        download = self.client.get(payload["download_url"])
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.content, buffer.getvalue())
+
+    def test_edit_rejects_non_office_attachment(self):
+        upload = self.client.post(
+            "/attachments",
+            files={"files": ("说明.txt", b"content", "text/plain")},
+        )
+        attachment_id = upload.json()["attachments"][0]["id"]
+
+        response = self.client.post(
+            "/edit_document",
+            json={"instructions": "修改内容", "attachment_id": attachment_id},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("仅支持 DOCX 和 XLSX", response.json()["detail"])
 
 
 if __name__ == "__main__":

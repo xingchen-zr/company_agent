@@ -4,7 +4,7 @@
 
 本文档描述 `company_agent` 当前版本的系统边界、模块职责、数据流、运行依赖和关键技术决策，作为后续开发、评审和维护的基础。
 
-当前系统是一个面向企业制度资料问答的模块化单体原型。本文档区分“当前已实现”和“后续规划”，避免架构文档与代码状态不一致。
+当前系统是一个面向企业制度资料问答和 Office 文件修改的模块化单体原型。本文档区分“当前已实现”和“后续规划”，避免架构文档与代码状态不一致。
 
 ## 2. 项目目标
 
@@ -16,6 +16,7 @@
 - 使用大语言模型生成基于资料的回答。
 - 保留同一浏览器会话中的最近对话上下文。
 - 通过流式响应改善前端等待体验。
+- 根据用户提示词受控修改 Word 和 Excel 文件，并返回不覆盖原件的下载副本。
 
 当前项目主要用于验证 RAG、Agent 工具调用和会话历史链路，不是生产环境架构。
 
@@ -35,11 +36,16 @@ flowchart LR
     VISION[DeepSeek Vision Model]
     REDIS[(Redis\n会话历史)]
     FILES[(uploads/\n会话附件)]
+    EDITOR[Office 编辑器\noffice_editor.py]
     DOC[企业制度 TXT]
 
     U -->|POST /get_question| API
     U -->|POST /attachments| API
     API -->|校验并保存| FILES
+    U -->|POST /edit_document| API
+    API --> EDITOR
+    EDITOR -->|受约束修改计划| LLM
+    EDITOR -->|保存修改副本| FILES
     FILES -->|提取文本附件内容| API
     FILES -->|Base64 图片| VISION
     VISION -->|图片识别结果| API
@@ -80,7 +86,8 @@ flowchart LR
 - 创建 FastAPI 应用。
 - 挂载 `frontend/` 静态资源。
 - 提供 `POST /get_question` 问答接口。
-- 提供 `POST /attachments` 上传接口和 `DELETE /attachments/{attachment_id}` 删除接口。
+- 提供附件上传、删除和会话内下载接口。
+- 提供 `POST /edit_document` Word 和 Excel 修改接口。
 - 提供 `POST /new_chat` 新建会话接口。
 - 从 `chat_session_id` Cookie 读取和写回会话 ID。
 - 将 Agent 结果封装为 `StreamingResponse`。
@@ -105,8 +112,13 @@ flowchart LR
 - 从 TXT、MD、CSV、PDF、DOCX、XLSX 提取文本，并限制拼接到提示词的长度。
 - 对图片返回明确的不可识别说明，不读取图片像素。
 - 使用 Base64 Data URL 将图片发送给 `IMAGE_MODEL`，提取视觉模型返回的文字描述。
+- 将 DOCX 或 XLSX 的可见结构发送给模型生成受约束的 JSON 修改计划。
+- 校验并执行 Word 文本、段落、表格以及 Excel 单元格、公式和基础样式修改。
+- 将结果保存为新的会话附件，不覆盖用户上传的原文件。
 
 当前模块负责安全接收、保存、读取已授权文件、文本提取和图片识别。文档文本与视觉结果会拼接到当前用户提示词，但不会写入向量库。
+
+Office 修改由 `office_editor.py` 独立负责。模型只能选择预定义操作，后端仍会验证工作表、单元格、段落和表格坐标；单次最多执行 200 项操作。
 
 ### 4.3 文档处理层：`Document_Processing/Document_Processing.py`
 
@@ -263,6 +275,27 @@ sequenceDiagram
     V-->>F: 对象、场景、文字和表格识别结果
 ```
 
+### 5.4 Office 文件修改流程
+
+```mermaid
+sequenceDiagram
+    participant B as 浏览器
+    participant F as FastAPI
+    participant S as AttachmentStorage
+    participant E as OfficeEditor
+    participant M as DeepSeek
+
+    B->>F: POST /edit_document + attachment_id + instructions
+    F->>S: 验证会话归属并读取 DOCX/XLSX
+    F->>E: 文件内容 + 用户提示词
+    E->>E: 提取段落、表格或单元格快照
+    E->>M: 请求 JSON 修改计划
+    M-->>E: 预定义操作列表
+    E->>E: 校验并执行最多 200 项操作
+    E->>S: 保存修改副本和元数据
+    F-->>B: 修改摘要 + 下载地址
+```
+
 ## 6. 数据存储设计
 
 | 数据 | 存储位置 | 生命周期 | 说明 |
@@ -270,7 +303,7 @@ sequenceDiagram
 | 原始制度文本 | `Document_Processing/` | 随项目文件保存 | 当前为单个 UTF-8 TXT |
 | 文档块和向量 | `Chroma_db/` | 持久化 | 集合名为 `Commpany_Vector` |
 | 会话问答 | Redis List | 48 小时，最多 10 条 | Key 为 Cookie 中的 `session_id` |
-| 对话附件 | `uploads/<session_id>/` | 当前未自动过期 | 原文件使用随机 ID 命名，并保存 JSON 元数据 |
+| 对话附件和修改副本 | `uploads/<session_id>/` | 当前未自动过期 | 文件使用随机 ID 命名，并保存 JSON 元数据；修改不覆盖原件 |
 
 当前没有保存文档版本、内容哈希、用户权限标签、文档页码标准化字段或独立的文档元数据库。
 
@@ -287,6 +320,18 @@ sequenceDiagram
 
 - 只允许删除当前 Cookie 会话拥有的附件。
 - 成功返回 `204`；不存在或不属于当前会话时返回 `404`。
+
+### `GET /attachments/{attachment_id}/download`
+
+- 只允许下载当前 Cookie 会话拥有的附件。
+- 使用元数据中的原始或输出文件名返回文件。
+
+### `POST /edit_document`
+
+- 接收一个当前会话的 DOCX/XLSX 附件 ID 和最长 2,000 字的修改要求。
+- 将文件结构转为受长度限制的快照，请求模型输出预定义 JSON 操作。
+- 校验并执行操作，生成新的附件 ID 和下载地址。
+- 无效附件返回 `400`，无效或不可执行的修改计划返回 `422`。
 
 ### `POST /get_question`
 
@@ -340,6 +385,8 @@ Redis List 适合保存有限长度的短期上下文，读取和裁剪逻辑简
 - 文档入库使用固定序号 ID，重复入库可能导致数据覆盖或重复。
 - Agent 只有一个检索工具，尚未支持数据库查询、文件解析和计算工具。
 - 对话附件尚未自动过期，也尚未接入恶意文件扫描；视觉结果可能存在误识别，关键字段仍需人工核对。
+- Office 修改依赖模型正确识别目标位置；复杂版式、宏、数据透视表和外部链接等高级特性仍需在 Microsoft Office 中复核。
+- Excel 公式写入后标记为打开时完整重算，服务端当前不提供与桌面 Excel 等价的计算引擎。
 - 接口返回纯文本，检索来源没有作为结构化字段独立返回。
 - Redis 会话只有 48 小时有效，且只保留最近 10 条记录。
 - 当前没有身份认证、文档权限过滤、速率限制和审计系统。

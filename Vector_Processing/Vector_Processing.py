@@ -23,7 +23,10 @@ class VectorProcessing:
     def __init__(self):
         self.vector_store = Chroma(
             collection_name="Commpany_Vector",
-            embedding_function=OllamaEmbeddings(model="nomic-embed-text"),
+            embedding_function=OllamaEmbeddings(
+                model=env.OLLAMA_EMBEDDING_MODEL,
+                base_url=env.OLLAMA_BASE_URL,
+            ),
             persist_directory=env.vector_path,
         )
         self.bm25_index = BM25Index(Path(env.vector_path) / "bm25_index.json")

@@ -1,0 +1,96 @@
+name: company-agent
+
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?请在 .env 中设置 DEEPSEEK_API_KEY}"
+      DEEPSEEK_MODEL: "${DEEPSEEK_MODEL:-deepseek-v4-pro}"
+      DEEPSEEK_IMAGE_MODEL: "${DEEPSEEK_IMAGE_MODEL:-deepseek-v4-flash-vision-exp}"
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+      TEXT_PATH: /app/Document_Processing/金融公司制度与操作手册.txt
+      VECTOR_PATH: /data/chroma
+      UPLOAD_PATH: /data/uploads
+      COOKIE_SECURE: "true"
+    volumes:
+      - chroma_data:/data/chroma
+      - upload_data:/data/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        ollama pull nomic-embed-text
+    depends_on:
+      - ollama
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: "${DOMAIN:?请在 .env 中设置 DOMAIN}"
+      DEMO_USERNAME: "${DEMO_USERNAME:?请在 .env 中设置 DEMO_USERNAME}"
+      DEMO_PASSWORD_HASH: "${DEMO_PASSWORD_HASH:?请在 .env 中设置 DEMO_PASSWORD_HASH}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  chroma_data:
+  upload_data:
+  redis_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:

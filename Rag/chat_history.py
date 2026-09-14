@@ -10,7 +10,12 @@ from uuid import uuid4
 class ChatHistory:
 
     def __init__(self):
-        self.r = Redis(decode_responses=True)
+        self.r = Redis.from_url(
+            env.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+        )
 
 #加载获取历史对话
     def get_chat_history(self,session_id=None):

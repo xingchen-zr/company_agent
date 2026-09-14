@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.venv
+__pycache__
+*.py[cod]
+*.log
+.env
+logs
+uploads
+tests
+.codex-company-manual
+.codex-resume-opt
